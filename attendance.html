@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mark Attendance - Attendance System</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .loader { display: none; border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 20px auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="mb-4">Mark Attendance</h1>
+        <video id="video" width="640" height="480" autoplay class="border rounded mb-3"></video>
+        <canvas id="canvas" style="display:none;" width="640" height="480"></canvas>
+        <div id="loader" class="loader"></div>
+        <p id="message" class="mt-3 text-center"></p>
+        <div class="text-center">
+            <a href="{{ url_for('student_dashboard') }}" class="btn btn-secondary mt-3">Back to Dashboard</a>
+        </div>
+    </div>
+
+    <!-- Load face-api.js from local static folder -->
+    <script src="{{ url_for('static', filename='js/face-api.min.js') }}"></script>
+    <script>
+        // Wait for DOM and face-api.js to load
+        document.addEventListener('DOMContentLoaded', () => {
+            const video = document.getElementById('video');
+            const canvas = document.getElementById('canvas');
+            const message = document.getElementById('message');
+            const loader = document.getElementById('loader');
+            const context = canvas.getContext('2d');
+            let hasCaptured = false;
+
+            // Check if faceapi is defined
+            if (typeof faceapi === 'undefined') {
+                message.className = 'alert alert-danger mt-3';
+                message.textContent = 'Error: face-api.js failed to load from static/js/face-api.min.js';
+                console.error('faceapi is not defined - check if static/js/face-api.min.js loaded');
+            } else {
+                console.log('face-api.js loaded successfully');
+                // Load face detection models
+                Promise.all([
+                    faceapi.nets.tinyFaceDetector.loadFromUri('/static/models'),
+                    faceapi.nets.faceLandmark68Net.loadFromUri('/static/models')
+                ]).then(() => {
+                    console.log('Models loaded successfully');
+                    startVideo();
+                }).catch(err => {
+                    message.className = 'alert alert-danger mt-3';
+                    message.textContent = 'Error loading face detection models: ' + err;
+                    console.error('Model loading error:', err);
+                });
+            }
+
+            function startVideo() {
+                navigator.mediaDevices.getUserMedia({ video: true })
+                    .then(stream => {
+                        video.srcObject = stream;
+                        detectBlink();
+                    })
+                    .catch(err => {
+                        message.className = 'alert alert-danger mt-3';
+                        message.textContent = 'Error accessing webcam: ' + err;
+                        console.error('Webcam error:', err);
+                    });
+            }
+
+            function detectBlink() {
+                video.addEventListener('play', async () => {
+                    const displaySize = { width: video.width, height: video.height };
+                    faceapi.matchDimensions(canvas, displaySize);
+
+                    const interval = setInterval(async () => {
+                        if (hasCaptured) {
+                            clearInterval(interval);
+                            return;
+                        }
+                        const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks();
+                        if (detections.length > 0) {
+                            const landmarks = detections[0].landmarks;
+                            const leftEye = landmarks.getLeftEye();
+                            const rightEye = landmarks.getRightEye();
+                            const leftEAR = calculateEAR(leftEye);
+                            const rightEAR = calculateEAR(rightEye);
+                            const EAR = (leftEAR + rightEAR) / 2;
+                            if (EAR < 0.2) {  // Blink detected
+                                captureImage();
+                                hasCaptured = true;
+                            }
+                        }
+                    }, 100);
+                });
+            }
+
+            function calculateEAR(eye) {
+                function distance(p1, p2) {
+                    return Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+                }
+                const vertical1 = distance(eye[1], eye[5]);
+                const vertical2 = distance(eye[2], eye[4]);
+                const horizontal = distance(eye[0], eye[3]);
+                return (vertical1 + vertical2) / (2.0 * horizontal);
+            }
+
+            function captureImage() {
+                loader.style.display = 'block';
+                context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                canvas.toBlob(blob => {
+                    navigator.geolocation.getCurrentPosition(position => {
+                        const formData = new FormData();
+                        formData.append('image', blob, 'capture.jpg');
+                        formData.append('latitude', position.coords.latitude);
+                        formData.append('longitude', position.coords.longitude);
+                        sendRequest(formData);
+                    }, () => {
+                        const formData = new FormData();
+                        formData.append('image', blob, 'capture.jpg');
+                        sendRequest(formData);
+                    }, { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 });
+                }, 'image/jpeg');
+            }
+
+            function sendRequest(formData) {
+                fetch('/student/mark_attendance', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    loader.style.display = 'none';
+                    if (data.success) {
+                        message.className = 'alert alert-success mt-3';
+                        message.textContent = 'Attendance marked successfully!';
+                        setTimeout(() => { window.location.href = '/student/dashboard'; }, 2000);
+                    } else {
+                        message.className = 'alert alert-danger mt-3';
+                        message.textContent = data.error;
+                        hasCaptured = false;
+                    }
+                })
+                .catch(err => {
+                    loader.style.display = 'none';
+                    message.className = 'alert alert-danger mt-3';
+                    message.textContent = 'Server error: ' + err.message;
+                    hasCaptured = false;
+                    console.error('Fetch error:', err);
+                });
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teacher Dashboard - Attendance System</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.11.3/css/dataTables.bootstrap5.min.css">
+    <style>
+        .navbar { animation: slideIn 0.5s; }
+        @keyframes slideIn { from { transform: translateY(-100%); } to { transform: translateY(0); } }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('teacher_dashboard') }}">Attendance System - Teacher</a>
+            <div class="navbar-nav ms-auto">
+                <span class="nav-item nav-link text-light">Welcome, {{ current_user.name }}</span>
+                <a class="nav-item nav-link" href="{{ url_for('logout') }}">Logout</a>
+            </div>
+        </div>
+    </nav>
+    <div class="container mt-4">
+        <h1 class="mb-4">Teacher Dashboard - {{ current_user.standard.name }}</h1>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        <div class="card shadow-sm mb-4">
+            <div class="card-body">
+                <h5 class="card-title">Manage Students</h5>
+                <a href="{{ url_for('add_student') }}" class="btn btn-primary mb-3">Add Student</a>
+                <table id="studentTable" class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>Roll Number</th>
+                            <th>Name</th>
+                            <th>UID</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for student in students %}
+                            <tr>
+                                <td>{{ student.roll_number }}</td>
+                                <td>{{ student.name }}</td>
+                                <td>{{ student.uid }}</td>
+                                <td>
+                                    <a href="{{ url_for('edit_student', student_id=student.id) }}" class="btn btn-sm btn-warning">Edit</a>
+                                    <form action="{{ url_for('delete_student', student_id=student.id) }}" method="POST" style="display:inline;">
+                                        <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Are you sure?');">Delete</button>
+                                    </form>
+                                    <button class="btn btn-sm btn-info view-attendance" data-student-id="{{ student.id }}">View Attendance</button>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="modal fade" id="attendanceModal" tabindex="-1" aria-labelledby="attendanceModalLabel" aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="attendanceModalLabel">Attendance History</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body" id="attendanceModalBody"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.datatables.net/1.11.3/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.11.3/js/dataTables.bootstrap5.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        $(document).ready(function() {
+            $('#studentTable').DataTable({
+                "order": [[0, "asc"]],
+                "searching": true,
+                "paging": true,
+                "info": true
+            });
+            $('.view-attendance').click(function() {
+                var studentId = $(this).data('student-id');
+                $.ajax({
+                    url: '/teacher/get_student_attendance/' + studentId,
+                    type: 'GET',
+                    success: function(data) {
+                        var html = '<table class="table"><thead><tr><th>Date</th><th>Time</th></tr></thead><tbody>';
+                        data.attendance.forEach(function(record) {
+                            html += '<tr><td>' + record.date + '</td><td>' + record.time + '</td></tr>';
+                        });
+                        html += '</tbody></table>';
+                        $('#attendanceModalBody').html(html);
+                        $('#attendanceModal').modal('show');
+                    },
+                    error: function() {
+                        $('#attendanceModalBody').html('<p>Error loading attendance data.</p>');
+                        $('#attendanceModal').modal('show');
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>
